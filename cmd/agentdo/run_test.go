@@ -36,6 +36,56 @@ func TestSubmitRequestCreatesSpoolFiles(t *testing.T) {
 	}
 }
 
+func TestValidateRequestIDRejectsUnsafeIDs(t *testing.T) {
+	for _, id := range []string{
+		"",
+		".",
+		"..",
+		"../escape",
+		"safe/../escape",
+		"/tmp/escape",
+		`..\escape`,
+		"has space",
+		"semi;colon",
+	} {
+		t.Run(id, func(t *testing.T) {
+			if err := validateRequestID(id); err == nil {
+				t.Fatalf("expected %q to be rejected", id)
+			}
+		})
+	}
+}
+
+func TestListRequestsSkipsMismatchedIDs(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("AGENTDO_HOME", tempDir)
+
+	if err := ensureLayout(); err != nil {
+		t.Fatalf("ensureLayout returned error: %v", err)
+	}
+
+	id := "20260322-120000-deadbeef"
+	if err := os.Mkdir(requestDir(id), 0o700); err != nil {
+		t.Fatalf("mkdir request dir: %v", err)
+	}
+	req := &Request{ID: "../escape"}
+	if err := writeJSONFile(requestPath(id), req, 0o600); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	status := &Status{ID: id, State: statePending}
+	if err := writeJSONFile(statusPath(id), status, 0o600); err != nil {
+		t.Fatalf("write status: %v", err)
+	}
+
+	requests, err := listRequests(true)
+	if err != nil {
+		t.Fatalf("listRequests returned error: %v", err)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("expected mismatched request to be skipped, got %d request(s)", len(requests))
+	}
+}
+
 func TestExecuteRequestWritesLogs(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("AGENTDO_HOME", tempDir)

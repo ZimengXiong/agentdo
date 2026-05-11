@@ -230,6 +230,22 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+func validateRequestID(id string) error {
+	if id == "" {
+		return errors.New("request id is empty")
+	}
+	if !filepath.IsLocal(id) || filepath.Clean(id) != id {
+		return fmt.Errorf("invalid request id: %q", id)
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return fmt.Errorf("invalid request id: %q", id)
+	}
+	return nil
+}
+
 func writeJSONFile(path string, value any, mode fs.FileMode) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -302,17 +318,29 @@ func writeTextFile(path, content string, mode fs.FileMode) error {
 }
 
 func loadRequest(id string) (*Request, error) {
+	if err := validateRequestID(id); err != nil {
+		return nil, err
+	}
 	var req Request
 	if err := readJSONFile(requestPath(id), &req); err != nil {
 		return nil, err
+	}
+	if req.ID != id {
+		return nil, fmt.Errorf("request id mismatch: path %q contains %q", id, req.ID)
 	}
 	return &req, nil
 }
 
 func loadStatus(id string) (*Status, error) {
+	if err := validateRequestID(id); err != nil {
+		return nil, err
+	}
 	var status Status
 	if err := readJSONFile(statusPath(id), &status); err != nil {
 		return nil, err
+	}
+	if status.ID != id {
+		return nil, fmt.Errorf("status id mismatch: path %q contains %q", id, status.ID)
 	}
 	return &status, nil
 }
@@ -363,6 +391,9 @@ func listRequests(includeFinished bool) ([]*Request, error) {
 }
 
 func withLock(id string, fn func() error) error {
+	if err := validateRequestID(id); err != nil {
+		return err
+	}
 	lockFile, err := os.OpenFile(lockPath(id), os.O_CREATE|os.O_RDONLY, 0o600)
 	if err != nil {
 		return err
